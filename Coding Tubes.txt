@@ -1,0 +1,284 @@
+!pip install xgboost
+
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, ConfusionMatrixDisplay
+from sklearn.ensemble import RandomForestClassifier
+import matplotlib.pyplot as plt
+import joblib
+
+# Model klasifikasi
+from sklearn.linear_model import LogisticRegression
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.svm import SVC
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.preprocessing import OrdinalEncoder
+
+
+from xgboost import XGBClassifier
+
+# Membaca file CSV menjadi DataFrame
+dataframe = pd.read_csv('kulitkucing.csv')
+
+# Menampilkan 5 baris pertama dari dataframe
+dataframe.head()
+
+# Menampilkan informasi dari dataframe
+dataframe.info()
+
+# Salin dataset supaya data asli tidak rusak
+dataframe_int = dataframe.copy()
+
+# Encode label (target)
+encoder = LabelEncoder()
+dataframe_int['Label'] = encoder.fit_transform(dataframe_int['Kelas_Penyakit'])  # ubah dari 'Label' ke 'Kelas_Penyakit'
+
+# Pisahkan fitur dan target
+X = dataframe_int.drop(columns=['Kelas_Penyakit', 'Label'])  # semua kolom gejala
+y = dataframe_int['Label']  # target hasil encoding
+
+# Tampilkan 5 baris pertama
+print(dataframe_int.head())
+
+# Normalisasi
+scaler = StandardScaler()
+X_scaled = pd.DataFrame(scaler.fit_transform(X), columns=X.columns)
+
+# Split data (pakai stratify agar seimbang)
+X_train, X_test, y_train, y_test = train_test_split(
+    X_scaled, y, test_size=0.2, random_state=42, stratify=y
+)
+
+# Daftar model
+models = {
+    "Decision Tree": DecisionTreeClassifier(),
+    "Random Forest": RandomForestClassifier(),
+    "SVM": SVC(),
+    "KNN": KNeighborsClassifier(),
+    "Logistic Regression": LogisticRegression(),
+    "XGBoost": XGBClassifier(use_label_encoder=False, eval_metric='logloss', random_state=42)
+}
+
+# Training dan evaluasi model
+for name, model in models.items():
+    model.fit(X_train, y_train)
+    y_pred = model.predict(X_test)
+
+    print(f"\n🔍 Model: {name}")
+    print("✅ Akurasi:", accuracy_score(y_test, y_pred))
+    print("📄 Classification Report:\n", classification_report(y_test, y_pred))
+
+    # Confusion matrix
+    cm = confusion_matrix(y_test, y_pred)
+    disp = ConfusionMatrixDisplay(confusion_matrix=cm)
+    disp.plot(cmap=plt.cm.Blues)
+    plt.title(f"Confusion Matrix - {name}")
+    plt.show()
+
+# Cek model terbaik memprediksi lebih dari satu kelas
+print("🔍 Prediksi unik oleh Random Forest:", np.unique(models["Random Forest"].predict(X_test)))
+
+# Simpan model terbaik (pakai Random Forest), scaler, dan encoder
+joblib.dump(models["Random Forest"], "svm_model.pkl")
+joblib.dump(scaler, "scaler.pkl")
+joblib.dump(encoder, "label_encoder.pkl")
+
+# ------------------------
+# Fungsi Prediksi Gradio
+# ------------------------
+def prediksi_penyakit(*input_gejala):
+    model = joblib.load("svm_model.pkl")
+    scaler = joblib.load("scaler.pkl")
+    le = joblib.load("label_encoder.pkl")
+
+    input_array = np.array(input_gejala).reshape(1, -1)
+    input_scaled = scaler.transform(input_array)
+    pred = model.predict(input_scaled)
+    hasil = le.inverse_transform(pred)[0]
+
+    return f"🔎 Hasil Prediksi: {hasil}"
+
+
+with gr.Blocks(theme=gr.themes.Base(primary_hue="blue")) as demo:
+    # --- Header Utama ---
+    gr.Markdown(
+        """
+        <div style='
+            text-align: center; 
+            padding: 20px; 
+            border-radius: 20px; 
+            background: linear-gradient(135deg, #e0f7ff, #c0ddff);
+            font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+        '>
+            <h1 style='font-size: 2.5em; margin-bottom: 10px;'>🐾 Kenali Masalah Kulit Kucing Kesayanganmu di Sini!</h1>
+            <p style='font-size: 1.2em; color: #333;'>Bantu peliharaanmu tetap sehat dan nyaman 😻<br>
+            Cuma isi beberapa pertanyaan ringan kok! Sistem bakal bantu cek apakah si meong sedang mengalami masalah kulit. Biar dia bisa tetap ceria dan nyaman~</p>
+        </div>
+        """
+    )
+
+    # --- Keterangan Nilai 0 dan 1 ---
+    gr.Markdown(
+        """
+        <div style='
+            margin-top: 10px;
+            padding: 12px;
+            border-radius: 10px;
+            background-color: #e6f2ff;
+            color: #003366;
+            font-family: "Trebuchet MS", sans-serif;
+            text-align: center;
+            font-size: 1em;
+            max-width: 400px;
+            margin-left: auto;
+            margin-right: auto;
+        '>
+            <strong>Keterangan:</strong><br>
+            Pilihan <b>0</b> berarti <i>Tidak</i>, dan <b>1</b> berarti <i>Iya</i>.
+        </div>
+        """
+    )
+
+    # Kolom gejala dari dataset (disesuaikan)
+    gejala_cols = [
+      'Luka di Telinga', 'Gatal', 'Kerontokan', 'Serpihan Putih', 'Bengkak',
+      'Kerontokan Fokal', 'Bulu Tipis', 'Menggaruk Ekor', 'Luka di Paha', 'Bersisik',
+      'Keropeng', 'Jerawat Hitam', 'Garukan Berlebih', 'Ruam Merah', 'Luka Terbuka',
+      'Gatal Parah', 'Tidak Nyaman', 'Kemerahan', 'Tidak Ada Luka', 'Kulit Merah',
+      'Luka Bernanah', 'Bercak Bulat', 'Benjolan di Dagu', 'Kulit Bersisik',
+      'Rambut Rontok', 'Benjolan di Mulut', 'Lesi Merah'
+    ]
+
+    # --- Form Pertanyaan Gejala ---
+    nama_gejala_display = {
+        gejala_cols[0]: "Apakah ada luka di bagian telinga kucing?",
+        gejala_cols[1]: "Apakah kucing sering terlihat gatal atau menggaruk tubuhnya?",
+        gejala_cols[2]: "Apakah bulu kucing rontok lebih banyak dari biasanya?",
+        gejala_cols[3]: "Apakah terlihat serpihan putih seperti ketombe di bulunya?",
+        gejala_cols[4]: "Apakah ada bagian tubuh kucing yang tampak bengkak?",
+        gejala_cols[5]: "Apakah bulu kucing rontok hanya di satu area tertentu (fokal)?",
+        gejala_cols[6]: "Apakah bulu kucing tampak tipis atau jarang di beberapa bagian?",
+        gejala_cols[7]: "Apakah kucing sering menggaruk atau menjilat bagian ekornya?",
+        gejala_cols[8]: "Apakah terdapat luka pada bagian paha kucing?",
+        gejala_cols[9]: "Apakah kulit kucing tampak bersisik atau terkelupas?",
+        gejala_cols[10]: "Apakah terlihat keropeng atau luka kering di kulit kucing?",
+        gejala_cols[11]: "Apakah ada bintik hitam seperti jerawat di dagu atau wajah kucing?",
+        gejala_cols[12]: "Apakah kucing sering menggaruk tubuhnya secara berlebihan?",
+        gejala_cols[13]: "Apakah muncul ruam berwarna merah pada kulit kucing?",
+        gejala_cols[14]: "Apakah terdapat luka terbuka yang belum sembuh di kulitnya?",
+        gejala_cols[15]: "Apakah kucing mengalami gatal yang sangat parah?",
+        gejala_cols[16]: "Apakah kucing terlihat tidak nyaman atau gelisah karena kondisi kulitnya?",
+        gejala_cols[17]: "Apakah kulit kucing tampak memerah di beberapa area?",
+        gejala_cols[18]: "Apakah kulit kucing terlihat normal dan tidak ada luka?",
+        gejala_cols[19]: "Apakah warna kulit kucing berubah menjadi merah?",
+        gejala_cols[20]: "Apakah terdapat luka yang bernanah atau mengeluarkan cairan?",
+        gejala_cols[21]: "Apakah ada bercak bulat di kulit kucing, seperti gejala jamur?",
+        gejala_cols[22]: "Apakah terdapat benjolan kecil di bagian dagu kucing?",
+        gejala_cols[23]: "Apakah kulit kucing tampak kasar dan terkelupas seperti bersisik?",
+        gejala_cols[24]: "Apakah bulu kucing mengalami kerontokan parah atau kebotakan?",
+        gejala_cols[25]: "Apakah ada benjolan di sekitar mulut kucing?",
+        gejala_cols[26]: "Apakah terlihat luka ringan atau lesi merah pada kulit?",
+    }
+
+    deskripsi_gejala = {
+    gejala_cols[0]: "Bagian kulit telinga terlihat terluka, bisa berupa goresan, lecet, atau robekan kecil.",
+    gejala_cols[1]: "Kucing sering menggaruk tubuhnya atau menjilat bagian tubuh tertentu secara berulang.",
+    gejala_cols[2]: "Bulu kucing banyak yang rontok, biasanya sampai menempel di lantai, baju, atau tangan saat dibelai.",
+    gejala_cols[3]: "Muncul serpihan kecil berwarna putih di kulit atau bulu kucing, mirip ketombe.",
+    gejala_cols[4]: "Ada bagian tubuh kucing yang terlihat membesar atau menonjol jika dibandingkan bagian sekitarnya.",
+    gejala_cols[5]: "Bulu rontok hanya di satu area kecil dan terlihat berbentuk bulat atau lingkaran.",
+    gejala_cols[6]: "Bulu kucing tampak lebih jarang, sehingga kulit di bawahnya mulai terlihat.",
+    gejala_cols[7]: "Kucing sering terlihat menggigit atau menggaruk-garuk area pangkal atau ujung ekor.",
+    gejala_cols[8]: "Ada bagian di paha kucing yang terlihat luka, bisa terbuka, tergores, atau memar.",
+    gejala_cols[9]: "Kulit kucing terasa kasar dan terlihat seperti mengelupas atau pecah-pecah.",
+    gejala_cols[10]: "Luka yang sudah mengering dan membentuk lapisan keras di atas permukaan kulit.",
+    gejala_cols[11]: "Muncul bintik-bintik kecil berwarna hitam, biasanya di dagu atau sekitar mulut.",
+    gejala_cols[12]: "Kucing terus menggaruk tubuhnya tanpa henti, bahkan hingga melukai kulit sendiri.",
+    gejala_cols[13]: "Kulit kucing tampak memerah di beberapa bagian dan biasanya bercak-bercak kecil.",
+    gejala_cols[14]: "Luka yang belum kering, tampak basah, dan kulitnya terbelah atau menganga.",
+    gejala_cols[15]: "Kucing terlihat sangat gelisah karena rasa gatal dan terus menggaruk atau menjilat tubuhnya dengan kuat.",
+    gejala_cols[16]: "Kucing terlihat sering menjilat, menggigit tubuhnya, atau tidak mau disentuh karena merasa tidak nyaman.",
+    gejala_cols[17]: "Warna kulit menjadi merah muda hingga merah terang, biasanya di area tertentu saja.",
+    gejala_cols[18]: "Kulit terlihat bersih, mulus, tidak ada luka, benjolan, atau bercak yang mencurigakan.",
+    gejala_cols[19]: "Permukaan kulit terlihat berwarna merah cerah, lebih jelas dibanding warna kulit biasanya.",
+    gejala_cols[20]: "Luka yang mengeluarkan cairan kental berwarna putih, kuning, atau kehijauan.",
+    gejala_cols[21]: "Area kulit yang tidak ditumbuhi bulu berbentuk bulat atau lingkaran yang jelas.",
+    gejala_cols[22]: "Terdapat tonjolan kecil di dagu kucing, terasa seperti benjol saat disentuh.",
+    gejala_cols[23]: "Kulit kucing terasa kering, kasar saat dipegang, dan tampak mengelupas seperti sisik.",
+    gejala_cols[24]: "Banyak bulu rontok dari tubuh kucing, bahkan bisa terlihat botak di beberapa bagian.",
+    gejala_cols[25]: "Muncul benjol kecil di sekitar mulut atau bibir kucing.",
+    gejala_cols[26]: "Ada bercak merah kecil atau luka ringan di permukaan kulit kucing."
+}
+
+    with gr.Row():
+        with gr.Column(scale=1):
+            gr.Markdown("<div style='background:#f0f8ff; padding:15px; border-radius:15px;'>")
+            inputs1 = []
+            for col in gejala_cols[:13]:
+                label = nama_gejala_display.get(col, col)
+                deskripsi = deskripsi_gejala.get(col, '')
+
+                radio = gr.Radio([0, 1], value=0, label=label, container=True, interactive=True)
+                gr.Markdown(f"""
+                    <div style='
+                        background-color: #ffffff; 
+                        padding: 10px; 
+                        border-radius: 8px; 
+                        margin-bottom: 15px; 
+                        border-left: 4px solid #3399ff;
+                        font-size: 13px;
+                        color: #003366;
+                        font-family: "Trebuchet MS", sans-serif;
+                    '><i>{deskripsi}</i></div>
+                """)
+                inputs1.append(radio)
+            gr.Markdown("</div>")
+
+        with gr.Column(scale=1):
+            gr.Markdown("<div style='background:#f0f8ff; padding:15px; border-radius:15px;'>")
+            inputs2 = []
+            for col in gejala_cols[13:]:
+                label = nama_gejala_display.get(col, col)
+                deskripsi = deskripsi_gejala.get(col, '')
+
+                radio = gr.Radio([0, 1], value=0, label=label, container=True, interactive=True)
+                gr.Markdown(f"""
+                    <div style='
+                        background-color: #ffffff; 
+                        padding: 10px; 
+                        border-radius: 8px; 
+                        margin-bottom: 15px; 
+                        border-left: 4px solid #3399ff;
+                        font-size: 13px;
+                        color: #003366;
+                        font-family: "Trebuchet MS", sans-serif;
+                    '><i>{deskripsi}</i></div>
+                """)
+                inputs2.append(radio)
+            gr.Markdown("</div>")
+
+    # --- Tombol & Output ---
+    all_inputs = inputs1 + inputs2
+    btn = gr.Button("🔍 Prediksi Sekarang")
+    output = gr.Textbox(label="Hasil Prediksi Penyakit")
+
+    btn.click(fn=prediksi_penyakit, inputs=all_inputs, outputs=output)
+
+    gr.Markdown("""
+      ### 🩺 Catatan Penting Tentang Penanganan di Rumah vs. ke Dokter
+
+      Beberapa penyakit kulit kucing memang bisa ditangani secara mandiri di rumah jika gejalanya ringan, namun sangat penting untuk memperhatikan perkembangan kondisinya.
+
+      🔁 Gejala tidak membaik setelah 3–5 hari perawatan mandiri.  
+      📈 Kondisi memburuk (misalnya luka makin besar, infeksi bernanah, kucing makin sering menggaruk).  
+      🧫 Terdapat cairan bernanah, bau busuk, atau kulit berdarah.  
+      🤝 Penyakit bersifat menular, terutama ke kucing lain atau manusia (misalnya ringworm atau scabies).  
+      🐾 Gejala menyebar ke area lain seperti telinga, ekor, wajah, atau seluruh tubuh.  
+      🐱 Kucing menjadi lemas, nafsu makan turun, atau tidak aktif seperti biasa.  
+      🧪 Kamu tidak yakin dengan penyebabnya atau pengobatan mandiri belum tepat.
+      """)
+
+demo.launch()
